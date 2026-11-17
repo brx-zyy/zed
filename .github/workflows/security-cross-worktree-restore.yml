@@ -1,0 +1,44 @@
+name: Cross-worktree restore regression
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - security-test/cross-worktree-restore
+    paths:
+      - "crates/remote_server/src/remote_editing_tests.rs"
+      - ".github/workflows/security-cross-worktree-restore.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    name: Remote restore authorization regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out fork branch
+        uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build pkg-config libssl-dev \
+            libasound2-dev libfontconfig1-dev libfreetype6-dev \
+            libx11-dev libx11-xcb-dev libxcb-randr0-dev libxcb-shape0-dev \
+            libxcb-xfixes0-dev libxcb-xkb-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev libwayland-dev libgl1-mesa-dev \
+            libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          components: rustfmt
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run focused regression test
+        run: cargo test -p remote_server --lib test_remote_restore_rejects_trash_from_another_worktree -- --nocapture
