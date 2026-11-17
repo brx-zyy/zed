@@ -6090,6 +6090,78 @@ async fn test_remote_trash_restore(cx: &mut TestAppContext, server_cx: &mut Test
     });
 }
 
+
+#[gpui::test]
+async fn test_remote_restore_rejects_trash_from_another_worktree(
+    cx: &mut TestAppContext,
+    server_cx: &mut TestAppContext,
+) {
+    let fs = FakeFs::new(server_cx.executor());
+
+    fs.insert_tree(
+        path!("/root"),
+        json!({
+            "zed": {
+                "file_a.txt": "File A"
+            },
+            "other": {
+                "file_b.txt": "File B"
+            }
+        }),
+    )
+    .await;
+
+    let (project, _headless_project) = init_test(&fs, cx, server_cx).await;
+    let (worktree_a, _) = project
+        .update(cx, |project, cx| {
+            project.find_or_create_worktree(path!("/root/zed"), true, cx)
+        })
+        .await
+        .unwrap();
+    let (worktree_b, _) = project
+        .update(cx, |project, cx| {
+            project.find_or_create_worktree(path!("/root/other"), true, cx)
+        })
+        .await
+        .unwrap();
+    cx.run_until_parked();
+
+    let worktree_a_id = worktree_a.update(cx, |worktree, _cx| worktree.id());
+    let worktree_b_id = worktree_b.update(cx, |worktree, _cx| worktree.id());
+    let entry_id = worktree_a.update(cx, |worktree, _cx| {
+        worktree.entry_for_path(rel_path("file_a.txt")).unwrap().id
+    });
+
+    let trash_id = project
+        .update(cx, |project, cx| project.trash_entry(entry_id, cx))
+        .unwrap()
+        .await
+        .unwrap();
+    cx.run_until_parked();
+
+    let restore_result = project
+        .update(cx, |project, cx| {
+            project.restore_entry(worktree_b_id, trash_id, cx)
+        })
+        .await
+        .unwrap()
+        .await;
+
+    assert!(
+        restore_result.is_err(),
+        "restoring a trash item through an unrelated worktree must be rejected"
+    );
+    assert_eq!(
+        fs.trashed_paths(),
+        vec![PathBuf::from(path!("/root/zed/file_a.txt"))],
+        "a rejected cross-worktree restore must not consume or restore the item"
+    );
+
+    // Keep the original worktree ID live in this test to make the intended
+    // source/target relationship explicit.
+    assert_ne!(worktree_a_id, worktree_b_id);
+}
+
 #[gpui::test]
 async fn test_remote_project_creation_notifies_new_entity_observers(
     cx: &mut TestAppContext,
