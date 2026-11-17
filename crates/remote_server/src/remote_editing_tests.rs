@@ -6152,6 +6152,11 @@ async fn test_remote_restore_rejects_trash_from_another_worktree(
         "the restore failed, but the trash item was already consumed: the filesystem side effect happened before path validation"
     );
 
+    assert!(
+        fs.is_file(path!("/root/zed/file_a.txt")).await,
+        "the restore failed, but the original file was already restored on disk"
+    );
+
     // Keep the original worktree ID live in this test to make the intended
     // source/target relationship explicit.
     assert_ne!(worktree_a_id, worktree_b_id);
