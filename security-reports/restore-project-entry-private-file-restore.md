@@ -19,7 +19,7 @@ let path = path_buf
 
 Consequently, a restore request using a valid trash ID with an unrelated worktree ID can restore the filesystem item and only then return an error. The trash item has already been consumed when the prefix check fails.
 
-The handler also differs from adjacent trash/delete handlers: those look up the entry and reject `entry.is_private` for ordinary shared-project peers; restore has no corresponding privacy/ownership validation. Because the restore request carries a `TrashId`, not an entry ID, this check must be performed against the original path associated with the trash ID before restoration.
+The handler also differs from adjacent trash/delete handlers: those look up the entry and reject `entry.is_private` for ordinary shared-project peers; restore has no corresponding privacy/ownership validation. Zed's default `private_files` patterns include `**/.env*`, `**/*.pem`, `**/*.key`, `**/*.cert`, `**/*.crt`, and `**/secrets.yml`. Because the restore request carries a `TrashId`, not an entry ID, the handler needs to resolve the original path and enforce the requesting peer's privacy policy before restoration.
 
 ## Reproduction evidence
 
@@ -53,7 +53,7 @@ However, the current passing regression test proves the **cross-worktree side ef
 3. A collaborator would need a valid or guessable `trash_id`. `TrashId` is serialized as a raw `uint64` derived from a SlotMap key; the practical ability to discover another entry's key must be demonstrated, not assumed.
 4. Opening a private file is separately guarded by `Project::respond_to_open_buffer_request`, which rejects buffers whose file reports `is_private()`. Therefore this report does **not** claim that file contents can currently be read through the normal buffer-open path.
 
-For these reasons, do not assign a CVE/CVSS score or describe this as a confirmed confidentiality breach until a collaboration-specific test demonstrates the attacker-controlled request and its security impact.
+For these reasons, do not assign a CVE/CVSS score or describe this as a confirmed confidentiality breach until a collaboration-specific test demonstrates the attacker-controlled request and its security impact. The normal buffer-open response path explicitly rejects a buffer whose file is private (`Project::respond_to_open_buffer_request`), so the current evidence supports unauthorized restoration/integrity impact and private-path metadata exposure, not confirmed reading of secret contents.
 
 ## Suggested validation to complete
 
