@@ -6144,8 +6144,7 @@ async fn test_remote_restore_rejects_trash_from_another_worktree(
             project.restore_entry(worktree_b_id, trash_id, cx)
         })
         .await
-        .unwrap()
-        .await;
+        .unwrap();
 
     assert!(
         restore_result.is_err(),
