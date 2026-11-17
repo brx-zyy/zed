@@ -6173,7 +6173,8 @@ async fn test_remote_restore_does_not_enforce_private_file_policy_for_shared_pee
         path!("/root"),
         json!({
             "zed": {
-                ".env": "SECRET=value"
+                ".env": "SECRET=value",
+                "public.txt": "PUBLIC"
             }
         }),
     )
@@ -6203,9 +6204,9 @@ async fn test_remote_restore_does_not_enforce_private_file_policy_for_shared_pee
         "the host should classify .env as private before it is trashed"
     );
 
-    // Simulate the host moving its private file to the OS trash. The remote
-    // collaborator does not receive this TrashId through the normal trash API.
-    let trash_id = fs
+    // Simulate the host moving its private file to the OS trash. The resulting
+    // ID is not disclosed to the collaborator by the normal trash API.
+    let private_trash_id = fs
         .trash(
             std::path::Path::new(path!("/root/zed/.env")),
             Default::default(),
@@ -6214,34 +6215,59 @@ async fn test_remote_restore_does_not_enforce_private_file_policy_for_shared_pee
         .unwrap();
 
     // A normal collaboration project ID is not the special remote-server ID.
-    // With this identity, the adjacent trash/delete handlers enforce is_private.
     let session = headless.read_with(server_cx, |headless, _| headless.session.clone());
     server_worktree_store.update(server_cx, |store, cx| {
         store.shared(42, session, cx);
     });
 
-    // The restore handler accepts the same TrashId without checking the
-    // original entry's private status and restores it into the shared worktree.
+    // The collaborator can trash a public file and receives its TrashId.
+    // SlotMap-backed TrashIds expose a predictable index: with adjacent
+    // allocations, the preceding ID identifies the host's private trash item.
+    let public_entry_id = worktree.update(cx, |worktree, _cx| {
+        worktree.entry_for_path(rel_path("public.txt")).unwrap().id
+    });
+    let public_trash_id = project
+        .update(cx, |project, cx| project.trash_entry(public_entry_id, cx))
+        .unwrap()
+        .await
+        .unwrap();
+
+    let guessed_private_trash_id =
+        fs::TrashId::from_proto(public_trash_id.to_proto().wrapping_sub(1));
+    assert_eq!(
+        guessed_private_trash_id,
+        private_trash_id,
+        "the test setup must model a neighboring, guessable TrashId"
+    );
+
+    // This call travels through the remote project client and the server's
+    // RestoreProjectEntry handler, using only the ID inferred from the
+    // collaborator's own public trash operation.
     let restore_result = project
-        .update(cx, |project, cx| project.restore_entry(worktree_id, trash_id, cx))
+        .update(cx, |project, cx| {
+            project.restore_entry(worktree_id, guessed_private_trash_id, cx)
+        })
         .await;
     assert!(
         restore_result.is_ok(),
-        "restore unexpectedly rejected a private trash item for a shared peer: {restore_result:?}"
+        "restore unexpectedly rejected a guessed private trash ID: {restore_result:?}"
     );
     assert!(
         fs.is_file(std::path::Path::new(path!("/root/zed/.env"))).await,
         "the private file was not restored"
     );
 
-    let client_entry_is_marked_private = worktree.read_with(cx, |worktree, _| {
-        worktree
-            .entry_for_path(rel_path(".env"))
-            .is_some_and(|entry| entry.is_private)
-    });
-    assert!(
-        !client_entry_is_marked_private,
-        "the restore response unexpectedly preserved the private marker"
+    // Attempt to read the restored private file from the collaborator client.
+    let buffer = project
+        .update(cx, |project, cx| {
+            project.open_buffer((worktree_id, rel_path(".env")), cx)
+        })
+        .await
+        .expect("the collaborator should be able to open the restored private file");
+    assert_eq!(
+        buffer.read_with(cx, |buffer, _| buffer.text().to_string()),
+        "SECRET=value",
+        "the collaborator did not receive the private file contents"
     );
 }
 
