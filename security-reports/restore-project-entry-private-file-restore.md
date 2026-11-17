@@ -38,9 +38,9 @@ The first CI run completed successfully:
 - Run: https://github.com/brx-zyy/zed/actions/runs/44041480123
 - Result: 1 test passed
 
-The test was then strengthened to assert that the original file is actually present after the failed restore, in addition to asserting that the trash entry has been consumed. That strengthened run is tracked here:
+The test was then strengthened to assert that the original file is actually present after the failed restore, in addition to asserting that the trash entry has been consumed. The first attempt at this extra assertion failed to compile because `path!()` returns `&str` while `Fs::is_file` requires `&Path`; that test-only type mismatch was corrected in commit `220cc0ec495cac7d44162a4ef97f9b1145a1eafd`. The corrected run is:
 
-- https://github.com/brx-zyy/zed/actions/runs/44043081620
+- https://github.com/brx-zyy/zed/actions/runs/44043722277 (pending at the time this draft was updated)
 
 ## Security relevance and limits
 
