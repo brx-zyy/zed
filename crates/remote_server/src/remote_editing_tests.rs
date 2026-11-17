@@ -6139,12 +6139,9 @@ async fn test_remote_restore_rejects_trash_from_another_worktree(
         .unwrap();
     cx.run_until_parked();
 
-    let restore_result = project
-        .update(cx, |project, cx| {
-            project.restore_entry(worktree_b_id, trash_id, cx)
-        })
-        .await
-        .unwrap();
+    let restore_result = project.update(cx, |project, cx| {
+        project.restore_entry(worktree_b_id, trash_id, cx)
+    });
 
     assert!(
         restore_result.is_err(),
