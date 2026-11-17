@@ -19,7 +19,7 @@ let path = path_buf
 
 Consequently, a restore request using a valid trash ID with an unrelated worktree ID can restore the filesystem item and only then return an error. The trash item has already been consumed when the prefix check fails.
 
-The handler also differs from adjacent trash/delete handlers: those look up the entry and reject `entry.is_private` for ordinary shared-project peers; restore has no corresponding privacy/ownership validation. Zed's default `private_files` patterns include `**/.env*`, `**/*.pem`, `**/*.key`, `**/*.cert`, `**/*.crt`, and `**/secrets.yml`. Because the restore request carries a `TrashId`, not an entry ID, the handler needs to resolve the original path and enforce the requesting peer's privacy policy before restoration.
+The handler is reachable through the multiplayer collaboration router: `RestoreProjectEntry` is forwarded with `forward_mutating_project_request`, which excludes guests but forwards requests from peers allowed to mutate the project. The handler also differs from adjacent trash/delete handlers: those look up the entry and reject `entry.is_private` for ordinary shared-project peers; restore has no corresponding privacy/ownership validation. Zed's default `private_files` patterns include `**/.env*`, `**/*.pem`, `**/*.key`, `**/*.cert`, `**/*.crt`, and `**/secrets.yml`. Because the restore request carries a `TrashId`, not an entry ID, the handler needs to resolve the original path and enforce the requesting peer's privacy policy before restoration.
 
 ## Reproduction evidence
 
@@ -49,8 +49,8 @@ The missing privacy check is security-relevant because Zed marks paths such as `
 However, the current passing regression test proves the **cross-worktree side effect**, not yet a complete unauthorized disclosure or collaboration exploit. In particular:
 
 1. The current harness uses the remote-server project mode, whose project ID is `REMOTE_SERVER_PROJECT_ID`; this is not identical to a normal multiplayer collaboration peer.
-2. The test uses a non-private file and does not demonstrate restoration of a private `.env` entry by a collaborator.
-3. A collaborator would need a valid or guessable `trash_id`. `TrashId` is serialized as a raw `uint64` derived from a SlotMap key; the practical ability to discover another entry's key must be demonstrated, not assumed.
+2. The original test uses a non-private file. A second test has now been added to simulate a non-`REMOTE_SERVER_PROJECT_ID` shared-peer identity and attempt restoration of a host-private `.env` entry; its CI result is pending.
+3. A collaborator would need a valid or guessable `trash_id`. `TrashId` is serialized as a raw `uint64` derived from a SlotMap key; the practical ability to discover another entry's key must be demonstrated, not assumed. The desktop app constructs a `RealFs` instance once and passes the shared `Arc<dyn Fs>` into local projects, so the same filesystem trash-key namespace may span multiple open projects; the cross-project consequence still needs a dedicated end-to-end test.
 4. Opening a private file is separately guarded by `Project::respond_to_open_buffer_request`, which rejects buffers whose file reports `is_private()`. Therefore this report does **not** claim that file contents can currently be read through the normal buffer-open path.
 
 For these reasons, do not assign a CVE/CVSS score or describe this as a confirmed confidentiality breach until a collaboration-specific test demonstrates the attacker-controlled request and its security impact. The normal buffer-open response path explicitly rejects a buffer whose file is private (`Project::respond_to_open_buffer_request`), so the current evidence supports unauthorized restoration/integrity impact and private-path metadata exposure, not confirmed reading of secret contents.
