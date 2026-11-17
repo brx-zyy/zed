@@ -6163,6 +6163,89 @@ async fn test_remote_restore_rejects_trash_from_another_worktree(
 }
 
 #[gpui::test]
+async fn test_remote_restore_does_not_enforce_private_file_policy_for_shared_peer(
+    cx: &mut TestAppContext,
+    server_cx: &mut TestAppContext,
+) {
+    let fs = FakeFs::new(server_cx.executor());
+
+    fs.insert_tree(
+        path!("/root"),
+        json!({
+            "zed": {
+                ".env": "SECRET=value"
+            }
+        }),
+    )
+    .await;
+
+    let (project, headless) = init_test(&fs, cx, server_cx).await;
+    let (worktree, _) = project
+        .update(cx, |project, cx| {
+            project.find_or_create_worktree(path!("/root/zed"), true, cx)
+        })
+        .await
+        .unwrap();
+    cx.run_until_parked();
+
+    let worktree_id = worktree.update(cx, |worktree, _cx| worktree.id());
+    let server_worktree_store =
+        headless.read_with(server_cx, |headless, _| headless.worktree_store.clone());
+    let server_worktree = server_worktree_store.read_with(server_cx, |store, cx| {
+        store.worktree_for_id(worktree_id, cx).unwrap()
+    });
+    assert!(
+        server_worktree.read_with(server_cx, |worktree, _| {
+            worktree
+                .entry_for_path(rel_path(".env"))
+                .is_some_and(|entry| entry.is_private)
+        }),
+        "the host should classify .env as private before it is trashed"
+    );
+
+    // Simulate the host moving its private file to the OS trash. The remote
+    // collaborator does not receive this TrashId through the normal trash API.
+    let trash_id = fs
+        .trash(
+            std::path::Path::new(path!("/root/zed/.env")),
+            Default::default(),
+        )
+        .await
+        .unwrap();
+
+    // A normal collaboration project ID is not the special remote-server ID.
+    // With this identity, the adjacent trash/delete handlers enforce is_private.
+    let session = headless.read_with(server_cx, |headless, _| headless.session.clone());
+    server_worktree_store.update(server_cx, |store, cx| {
+        store.shared(42, session, cx);
+    });
+
+    // The restore handler accepts the same TrashId without checking the
+    // original entry's private status and restores it into the shared worktree.
+    let restore_result = project
+        .update(cx, |project, cx| project.restore_entry(worktree_id, trash_id, cx))
+        .await;
+    assert!(
+        restore_result.is_ok(),
+        "restore unexpectedly rejected a private trash item for a shared peer: {restore_result:?}"
+    );
+    assert!(
+        fs.is_file(std::path::Path::new(path!("/root/zed/.env"))).await,
+        "the private file was not restored"
+    );
+
+    let client_entry_is_marked_private = worktree.read_with(cx, |worktree, _| {
+        worktree
+            .entry_for_path(rel_path(".env"))
+            .is_some_and(|entry| entry.is_private)
+    });
+    assert!(
+        !client_entry_is_marked_private,
+        "the restore response unexpectedly preserved the private marker"
+    );
+}
+
+#[gpui::test]
 async fn test_remote_project_creation_notifies_new_entity_observers(
     cx: &mut TestAppContext,
     server_cx: &mut TestAppContext,
