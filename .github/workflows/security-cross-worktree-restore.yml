@@ -41,4 +41,4 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Run focused regression test
-        run: cargo test -p remote_server --lib test_remote_restore_rejects_trash_from_another_worktree -- --nocapture
+        run: cargo test -p remote_server --lib test_remote_restore_ -- --nocapture
